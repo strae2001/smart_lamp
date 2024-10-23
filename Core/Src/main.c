@@ -35,6 +35,9 @@
 #include "beep.h"
 #include "infrared_sensor.h"
 #include "key.h"
+#include "esp8266.h"
+#include "onenet.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -86,7 +89,6 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 	OLED_Init();
-	lamp_Init();
 	BlueTooth_Init();
 	HCSR04_Init();
 	light_Sensor_init();
@@ -105,17 +107,23 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
-  MX_TIM4_Init();
+  // MX_TIM4_Init();
   MX_USART2_UART_Init();
   MX_TIM3_Init();
   MX_TIM1_Init();
   MX_ADC1_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);		// 启动定时器调制pwm波形
-  timer3_start();
-  
-	OLED_Show_Init();							// 初始化UI界面
+	lamp_Init();									// 初始化台灯
+	OLED_Show_Init();								// 初始化UI界面
+	
+	ESP8266_Init();			// wifi模块入网并连接onenet服务器
+	printf("已连接mqtt服务器\r\n");
+	
+	while(OneNet_DevLink())
+		osDelay(500);
+	printf("已连接onenet设备，可以开始上传数据了!\r\n");
 	
   /* USER CODE END 2 */
 

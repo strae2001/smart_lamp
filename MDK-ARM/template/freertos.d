@@ -54,3 +54,4 @@ template\freertos.o: ../Drivers/BSP/beep.h
 template\freertos.o: ../Drivers/BSP/infrared_sensor.h
 template\freertos.o: ../Drivers/BSP/key.h
 template\freertos.o: ../Drivers/BSP/BlueTooth.h
+template\freertos.o: ../Drivers/BSP/onenet.h

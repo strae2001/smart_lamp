@@ -57,3 +57,5 @@ template\main.o: ../Drivers/BSP/light_sensor.h
 template\main.o: ../Drivers/BSP/beep.h
 template\main.o: ../Drivers/BSP/infrared_sensor.h
 template\main.o: ../Drivers/BSP/key.h
+template\main.o: ../Drivers/BSP/esp8266.h
+template\main.o: ../Drivers/BSP/onenet.h

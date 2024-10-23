@@ -30,6 +30,6 @@ void light_Sensor_init(void)
 
 uint8_t light_Sensor_getValue(uint32_t channel)
 {
-	// 返回值限定在0~100，光照越强，返回值越小
-	return (uint8_t)(AD_getValue(channel)*100/4096);		
+	// 返回值限定在0~100，光照越强，返回值越大
+	return (uint8_t)(100 - AD_getValue(channel)*100/4096);		
 }

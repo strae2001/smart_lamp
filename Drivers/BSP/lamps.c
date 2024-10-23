@@ -15,6 +15,7 @@ void Set_PWM_lampValue(uint8_t val)
 void lamp_Init(void)
 {
 	MX_TIM4_Init();
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);		// 启动定时器调制pwm波形
 }
 
 void lamp_off(void)

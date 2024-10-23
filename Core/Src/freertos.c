@@ -35,6 +35,7 @@
 #include "infrared_sensor.h"
 #include "key.h"
 #include "BlueTooth.h"
+#include "onenet.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,21 +65,25 @@ enum LAMP_MODE
 
 uint8_t person_flag 		= 0;			// 有无人标志， 			默认0 无人
 //uint8_t tim_enable		= 0;			// 定时器能否开始计时		默认0 不计时
-uint8_t measure_enable 	= 0;				// 测距使能标志位			默认0 不测距
+uint8_t measure_enable 		= 0;				// 测距使能标志位			默认0 不测距
+uint8_t beep_switch 		= 0;
 
-uint8_t key_num = 0;						// 按键标识 				默认0 没有任何按键按下
+int		light_upload = 0;					// 待上传onenet光照值
+uint8_t key_num 	 = 0;					// 按键标识 				默认0 没有任何按键按下
 uint8_t lamp_mode = SMART_MODE;				// 台灯模式默认为智能模式
 	
 /* USER CODE END Variables */
 osThreadId Infrared_CheckHandle;
-osThreadId keyScanHandle;
+osThreadId Mode_switchHandle;
 osThreadId SmartModeHandle;
 osThreadId BtnModeHandle;
 osThreadId RemoteModeHandle;
 osThreadId TimCntHandle;
 osThreadId OledShowHandle;
 osThreadId MeasureHandle;
+osThreadId UploadHandle;
 osMessageQId myQueueHandle;
+osTimerId myTimerHandle;
 osMutexId myMutexHandle;
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,18 +92,23 @@ osMutexId myMutexHandle;
 /* USER CODE END FunctionPrototypes */
 
 void StartInfrared_Check(void const * argument);
-void StartkeyScan(void const * argument);
+void StartMode_switch(void const * argument);
 void StartSmartMode(void const * argument);
 void StartBtnMode(void const * argument);
 void StartRemoteMode(void const * argument);
 void StartTimCnt(void const * argument);
 void StartOledShow(void const * argument);
 void StartMeasure(void const * argument);
+void StartUpload(void const * argument);
+void Callback(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* GetIdleTaskMemory prototype (linked to static allocation support) */
 void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize );
+
+/* GetTimerTaskMemory prototype (linked to static allocation support) */
+void vApplicationGetTimerTaskMemory( StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize );
 
 /* USER CODE BEGIN GET_IDLE_TASK_MEMORY */
 static StaticTask_t xIdleTaskTCBBuffer;
@@ -112,6 +122,19 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackTy
   /* place for user code */
 }
 /* USER CODE END GET_IDLE_TASK_MEMORY */
+
+/* USER CODE BEGIN GET_TIMER_TASK_MEMORY */
+static StaticTask_t xTimerTaskTCBBuffer;
+static StackType_t xTimerStack[configTIMER_TASK_STACK_DEPTH];
+
+void vApplicationGetTimerTaskMemory( StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize )
+{
+  *ppxTimerTaskTCBBuffer = &xTimerTaskTCBBuffer;
+  *ppxTimerTaskStackBuffer = &xTimerStack[0];
+  *pulTimerTaskStackSize = configTIMER_TASK_STACK_DEPTH;
+  /* place for user code */
+}
+/* USER CODE END GET_TIMER_TASK_MEMORY */
 
 /**
   * @brief  FreeRTOS initialization
@@ -135,6 +158,11 @@ void MX_FREERTOS_Init(void) {
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
+  /* Create the timer(s) */
+  /* definition and creation of myTimer */
+  osTimerDef(myTimer, Callback);
+  myTimerHandle = osTimerCreate(osTimer(myTimer), osTimerPeriodic, NULL);
+
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
@@ -153,9 +181,9 @@ void MX_FREERTOS_Init(void) {
   osThreadDef(Infrared_Check, StartInfrared_Check, osPriorityHigh, 0, 128);
   Infrared_CheckHandle = osThreadCreate(osThread(Infrared_Check), NULL);
 
-  /* definition and creation of keyScan */
-  osThreadDef(keyScan, StartkeyScan, osPriorityAboveNormal, 0, 128);
-  keyScanHandle = osThreadCreate(osThread(keyScan), NULL);
+  /* definition and creation of Mode_switch */
+  osThreadDef(Mode_switch, StartMode_switch, osPriorityAboveNormal, 0, 128);
+  Mode_switchHandle = osThreadCreate(osThread(Mode_switch), NULL);
 
   /* definition and creation of SmartMode */
   osThreadDef(SmartMode, StartSmartMode, osPriorityNormal, 0, 128);
@@ -180,6 +208,10 @@ void MX_FREERTOS_Init(void) {
   /* definition and creation of Measure */
   osThreadDef(Measure, StartMeasure, osPriorityBelowNormal, 0, 128);
   MeasureHandle = osThreadCreate(osThread(Measure), NULL);
+
+  /* definition and creation of Upload */
+  osThreadDef(Upload, StartUpload, osPriorityLow, 0, 128);
+  UploadHandle = osThreadCreate(osThread(Upload), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -219,6 +251,7 @@ void StartInfrared_Check(void const * argument)
 		timer3_stop();
 		tim_enable = 1;						// 使能计时 为下一次计时作准备
 		beep_off();							// 关闭蜂鸣器
+		beep_switch = 0;
 	}
 	
     osDelay(10);
@@ -226,17 +259,16 @@ void StartInfrared_Check(void const * argument)
   /* USER CODE END StartInfrared_Check */
 }
 
-/* USER CODE BEGIN Header_StartkeyScan */
+/* USER CODE BEGIN Header_StartMode_switch */
 /**
-* @brief Function implementing the keyScan thread.
+* @brief Function implementing the Mode_switch thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartkeyScan */
-void StartkeyScan(void const * argument)
+/* USER CODE END Header_StartMode_switch */
+void StartMode_switch(void const * argument)
 {
-  /* USER CODE BEGIN StartkeyScan */
-	
+  /* USER CODE BEGIN StartMode_switch */
   /* Infinite loop */
   for(;;)
   {
@@ -258,7 +290,7 @@ void StartkeyScan(void const * argument)
 	
     osDelay(10);
   }
-  /* USER CODE END StartkeyScan */
+  /* USER CODE END StartMode_switch */
 }
 
 /* USER CODE BEGIN Header_StartSmartMode */
@@ -271,7 +303,7 @@ void StartkeyScan(void const * argument)
 void StartSmartMode(void const * argument)
 {
   /* USER CODE BEGIN StartSmartMode */
-	uint8_t lignt_val = 0;				// 环境亮度
+	uint8_t light_val;
   /* Infinite loop */
   for(;;)
   {
@@ -279,16 +311,16 @@ void StartSmartMode(void const * argument)
 	{
 		if(person_flag)
 		{
-			lignt_val = light_Sensor_getValue(ADC_CHANNEL_5);
-			if(lignt_val < 30)
+			light_val = light_Sensor_getValue(ADC_CHANNEL_5);
+			if(light_val < 30)
 			{
 				lamp_high();
 			}
-			else if(lignt_val >= 30 && lignt_val < 70)
+			else if(light_val >= 30 && light_val < 70)
 			{
 				lamp_Middle();
 			}
-			else if(lignt_val >= 70)
+			else if(light_val >= 70)
 				lamp_low();
 		}
 		else
@@ -313,34 +345,37 @@ void StartBtnMode(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	if(key_num == 2)
-	{
-		xSemaphoreTake(myMutexHandle, portMAX_DELAY);
-		lamp_brightness = get_lamp_brightness();			// 获取台灯亮度
-		xSemaphoreGive(myMutexHandle);
-		
-		if(lamp_brightness++ >= 3)
+	  xSemaphoreTake(myMutexHandle, portMAX_DELAY);
+	  lamp_brightness = get_lamp_brightness();			// 获取台灯亮度
+	  xSemaphoreGive(myMutexHandle);
+	  
+	  if(lamp_mode == BTN_MODE)
+	  {
+		if(key_num == 2)
 		{
-			lamp_brightness = 0;
-		}
-		
-		switch(lamp_brightness)			// 按键调整台灯亮度
-		{
-			case 0:
-				lamp_off();
-				break;
-			case 1:
-				lamp_low();
-				break;
-			case 2:
-				lamp_Middle();
-				break;
-			case 3:
-				lamp_high();
-				break;
+			if(lamp_brightness++ >= 3)
+			{
+				lamp_brightness = 0;
+			}
+			
+			switch(lamp_brightness)			// 按键调整台灯亮度
+			{
+				case 0:
+					lamp_off();
+					break;
+				case 1:
+					lamp_low();
+					break;
+				case 2:
+					lamp_Middle();
+					break;
+				case 3:
+					lamp_high();
+					break;
+			}
 		}
 	}
-    osDelay(10);
+	  osDelay(10);
   }
   /* USER CODE END StartBtnMode */
 }
@@ -416,13 +451,23 @@ void StartTimCnt(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	  the_time = sit_time_get();
-	  if(the_time / 10  >= 1 && the_time % 10 == 0)			// 久坐提示(10s钟提示一次)
+	  if(person_flag)
+	  {
+		  the_time = sit_time_get();
+		  if(the_time / 10  >= 1 && the_time % 10 == 0)			// 久坐提示(10s钟提示一次)
+		  {
+			  beep_switch = 1;
+		  }
+	  }
+	  
+	  if(beep_switch)
 	  {
 		  beep_on();
 	  }
-	
-    osDelay(10);
+	  else
+		  beep_off();
+	  
+     osDelay(10);
   }
   /* USER CODE END StartTimCnt */
 }
@@ -535,10 +580,10 @@ void StartMeasure(void const * argument)
 		
 		if(distance < 10)			// 距离台灯太近 蜂鸣器安全提示
 		{
-			beep_on();
+			beep_switch = 1;
 		}
 		else
-			beep_off();
+			beep_switch = 0;
 	}
 	else
 	{	
@@ -552,6 +597,42 @@ void StartMeasure(void const * argument)
     osDelay(10);
   }
   /* USER CODE END StartMeasure */
+}
+
+/* USER CODE BEGIN Header_StartUpload */
+/**
+* @brief Function implementing the Upload thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUpload */
+void StartUpload(void const * argument)
+{
+  /* USER CODE BEGIN StartUpload */
+	
+	// 开启定时器
+	if(xTimerChangePeriod(myTimerHandle, pdMS_TO_TICKS(8000), 0) != pdPASS)
+		printf("timer error\r\n");
+	
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(10);					
+  }
+  /* USER CODE END StartUpload */
+}
+
+/* Callback function */
+void Callback(void const * argument)
+{
+  /* USER CODE BEGIN Callback */
+	
+	light_upload = light_Sensor_getValue(ADC_CHANNEL_5);	// 更新待上传光照数据
+	
+	OneNet_SendData();				// 上传数据
+	printf("成功上传光照数据\r\n");
+	
+  /* USER CODE END Callback */
 }
 
 /* Private application code --------------------------------------------------*/

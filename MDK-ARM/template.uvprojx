@@ -433,6 +433,21 @@
               <FileType>1</FileType>
               <FilePath>..\Drivers\BSP\key.c</FilePath>
             </File>
+            <File>
+              <FileName>esp8266.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\BSP\esp8266.c</FilePath>
+            </File>
+            <File>
+              <FileName>MqttKit.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\BSP\MqttKit.c</FilePath>
+            </File>
+            <File>
+              <FileName>onenet.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\BSP\onenet.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
