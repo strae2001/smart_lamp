@@ -1,5 +1,9 @@
+### Discription 
+
+SmartLamp based on FreeRTOS and devloped by HAL library.
+
 #### 介绍
-基于stm32C8T6采用FreeRTOS结合HAL库开发的智能家台灯
+基于stm32C8T6采用FreeRTOS结合HAL库开发的智能台灯
 
 #### 软件架构
 软件架构说明
